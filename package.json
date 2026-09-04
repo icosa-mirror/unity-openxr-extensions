@@ -27,6 +27,6 @@
   },
   "homepage": "https://github.com/mikeskydev/unity-openxr-extensions",
   "dependencies": {
-    "com.unity.xr.openxr": "1.13.0"
+    "com.unity.xr.openxr": "1.18.0"
   }
 }
