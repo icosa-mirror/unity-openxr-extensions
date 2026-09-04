@@ -18,8 +18,29 @@ namespace OpenXR.Extensions
         private static readonly List<del_xrGetInstanceProcAddr> s_Handlers = new List<del_xrGetInstanceProcAddr>();
         private static del_xrGetInstanceProcAddr s_GetInstanceProcAddr;
         private static IntPtr s_CallbackPointer;
+        private static IntPtr s_OriginPointer;
 
         public static del_xrGetInstanceProcAddr GetInstanceProcAddr => s_GetInstanceProcAddr;
+
+#if UNITY_EDITOR
+        // These statics hold a pointer into the OpenXR loader, which is unloaded when play
+        // mode ends. With Reload Domain disabled they survive into the next play session and
+        // Intercepted_xrGetInstanceProcAddr calls into unmapped memory, crashing the editor
+        // on the second play. Unhook() only clears them once every feature has torn down,
+        // which does not happen if OnInstanceDestroy never runs, so clear them up front.
+        //
+        // Editor only: a player gets a fresh process per launch, and on platforms that
+        // initialise XR on startup this would race XRGeneralSettings, which also runs at
+        // SubsystemRegistration.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            s_Handlers.Clear();
+            s_GetInstanceProcAddr = null;
+            s_CallbackPointer = IntPtr.Zero;
+            s_OriginPointer = IntPtr.Zero;
+        }
+#endif
 
         public static IntPtr Hook(IntPtr xrGetInstanceProcAddr, del_xrGetInstanceProcAddr handler)
         {
@@ -33,8 +54,12 @@ namespace OpenXR.Extensions
                 s_CallbackPointer = Marshal.GetFunctionPointerForDelegate(s_Callback);
             }
 
-            if (xrGetInstanceProcAddr != s_CallbackPointer && s_GetInstanceProcAddr == null)
+            // Re-wrap whenever the loader hands us a pointer we have not already wrapped.
+            // Testing s_GetInstanceProcAddr == null instead would bind the delegate once and
+            // never refresh it, keeping a stale pointer across loader reloads.
+            if (xrGetInstanceProcAddr != s_CallbackPointer && xrGetInstanceProcAddr != s_OriginPointer)
             {
+                s_OriginPointer = xrGetInstanceProcAddr;
                 s_GetInstanceProcAddr = Marshal.GetDelegateForFunctionPointer<del_xrGetInstanceProcAddr>(
                     xrGetInstanceProcAddr);
             }
@@ -48,6 +73,7 @@ namespace OpenXR.Extensions
             if (s_Handlers.Count == 0)
             {
                 s_GetInstanceProcAddr = null;
+                s_OriginPointer = IntPtr.Zero;
             }
         }
 
