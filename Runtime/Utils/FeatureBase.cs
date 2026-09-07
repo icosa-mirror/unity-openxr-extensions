@@ -18,7 +18,6 @@ namespace OpenXR.Extensions
         private static readonly List<del_xrGetInstanceProcAddr> s_Handlers = new List<del_xrGetInstanceProcAddr>();
         private static del_xrGetInstanceProcAddr s_GetInstanceProcAddr;
         private static IntPtr s_CallbackPointer;
-        private static IntPtr s_OriginPointer;
 
         public static del_xrGetInstanceProcAddr GetInstanceProcAddr => s_GetInstanceProcAddr;
 
@@ -38,7 +37,6 @@ namespace OpenXR.Extensions
             s_Handlers.Clear();
             s_GetInstanceProcAddr = null;
             s_CallbackPointer = IntPtr.Zero;
-            s_OriginPointer = IntPtr.Zero;
         }
 #endif
 
@@ -54,15 +52,18 @@ namespace OpenXR.Extensions
                 s_CallbackPointer = Marshal.GetFunctionPointerForDelegate(s_Callback);
             }
 
-            // Re-wrap whenever the loader hands us a pointer we have not already wrapped.
-            // Testing s_GetInstanceProcAddr == null instead would bind the delegate once and
-            // never refresh it, keeping a stale pointer across loader reloads.
-            if (xrGetInstanceProcAddr != s_CallbackPointer && xrGetInstanceProcAddr != s_OriginPointer)
+            // Insert the shared callback only once per loader chain. A later feature may
+            // receive another package's wrapper around our callback: rebinding our
+            // downstream delegate to it would create a cycle. Returning our callback
+            // again would instead discard that wrapper, so preserve the incoming chain.
+            if (s_GetInstanceProcAddr != null)
             {
-                s_OriginPointer = xrGetInstanceProcAddr;
-                s_GetInstanceProcAddr = Marshal.GetDelegateForFunctionPointer<del_xrGetInstanceProcAddr>(
-                    xrGetInstanceProcAddr);
+                return xrGetInstanceProcAddr;
             }
+
+            // Unhook and the editor subsystem reset clear this binding between lifetimes.
+            s_GetInstanceProcAddr = Marshal.GetDelegateForFunctionPointer<del_xrGetInstanceProcAddr>(
+                xrGetInstanceProcAddr);
 
             return s_CallbackPointer;
         }
@@ -73,7 +74,6 @@ namespace OpenXR.Extensions
             if (s_Handlers.Count == 0)
             {
                 s_GetInstanceProcAddr = null;
-                s_OriginPointer = IntPtr.Zero;
             }
         }
 
